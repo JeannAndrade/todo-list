@@ -1,2 +1,2 @@
 # todo-list
- Todo list Front-end in HML/CSS/JS
+ Todo list Frontend in HML/CSS/JS
