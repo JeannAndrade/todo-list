@@ -90,9 +90,3 @@ div.todo h2 {
 .task-item:hover .tarefa-delete {
   visibility: visible;
 }
-
-.task-item,
-.tarefa-texto,
-.tarefa-delete {
-  /* border: 1px solid black; */
-}
