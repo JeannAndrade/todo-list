@@ -1,189 +1,341 @@
 var server = "http://www.minhastarefas-api.io/api/tarefas";
-var $lastClicked;
+var taskManager;
 
-function onTarefaDeleteClick() {
+class TaskManager {
+  constructor(containerName) {
+    this.tasks = [];
+    this.container = $("#" + containerName);
+    this.lastIdEdited = undefined;
+  }
 
-  $(this).parent('.tarefa-item')
-    .off('click')
-    .hide('slow', function() {
-      let id = $(this).attr("data-tarefa-id");
-      removeTarefa(id);
-      $(this).remove();
+  addTask(id, text, isFinished) {
+    let newTask = new Task(id, text, isFinished);
+    this.tasks.push(newTask);
+  }
+
+  showTasks() {
+    this.tasks.forEach((task) => this.container.append(task.toHTML()));
+  }
+
+  showTask(id) {
+    let taskFound = this.tasks.find((task) => task.id === id);
+    this.container.append(taskFound.toHTML());
+  }
+
+  createTask(text) {
+    let newTaskDto = {
+      'descricao': text,
+      'finalizada': false
+    };
+
+    $.ajax({
+      url: server,
+      type: "POST",
+      data: JSON.stringify(newTaskDto),
+      contentType: "application/json",
+      success: (data) => {
+        let taskCreated = new Task(data.id, data.descricao, data.finalizada);
+        this.tasks.push(taskCreated);
+        this.showTask(taskCreated.id);
+      },
+      error: function() {
+        alert("error");
+      }
     });
-}
-
-function newTarefa(text, id, finalizada) {
-  id = id || 0;
-
-  var $tarefa = $("<div />")
-    .addClass("tarefa-item")
-    .attr("data-tarefa-id", id)
-    .append(gerarTarefaCheckFinalizado(finalizada))
-    .append(gerarTarefaTexto(text, finalizada))
-    .append(gerarTarefaDelete())
-    .append(gerarTarefaClear());
-
-  return $tarefa;
-}
-
-function gerarTarefaCheckFinalizado(finalizada) {
-  let $divFinalizado = $("<div />")
-    .addClass("tarefa-finalizada")
-    .append(gerarCheckox(finalizada));
-  return $divFinalizado;
-}
-
-function gerarCheckox(finalizada) {
-  let $inputCheck = $("<input />")
-    .addClass("check-finalizado")
-    .change(onCheckboxFinalizadoChange)
-    .attr("type", "checkbox");
-
-  if (finalizada) {
-    $inputCheck.attr("checked", "checked");
   }
 
-  return $inputCheck;
-}
-
-function gerarTarefaTexto(texto, finalizada) {
-  let $tarefaTexto = $("<div />")
-    .addClass("tarefa-texto")
-    .click(onTarefaItemClick)
-    .text(texto);
-
-  if (finalizada) {
-    $tarefaTexto.addClass('texto-tachado');
-  }
-
-  return $tarefaTexto;
-}
-
-function gerarTarefaDelete() {
-  return $("<div />")
-    .addClass("tarefa-delete")
-    .click(onTarefaDeleteClick);
-}
-
-function gerarTarefaClear() {
-  return $("<div />")
-    .addClass("clear");
-}
-
-function onTarefaKeydown(event) {
-  if (event.which === 13) {
-    InsertTarefa($("#tarefa").val());
-    $("#tarefa").val("");
-  }
-}
-
-function onCheckboxFinalizadoChange() {
-  let $divTarefaItem = $(this).closest('.tarefa-item');
-  let id = $divTarefaItem.attr('data-tarefa-id');
-  let $divTarefaTexto = $divTarefaItem.find(".tarefa-texto");
-
-  let isCheched = this.checked;
-  if (isCheched) {
-    $divTarefaTexto.addClass('texto-tachado');
-  } else {
-    $divTarefaTexto.removeClass('texto-tachado');
-  }
-
-  let text = $divTarefaTexto.text();
-  updateTarefa(text, id, isCheched);
-}
-
-function onTarefaEditKeydown(event) {
-  if (event.which === 13) {
-    savePendingEdition($lastClicked);
-    $lastClicked = undefined;
-  }
-}
-
-function onTarefaItemClick() {
-  if (!$(this).is($lastClicked)) {
-    if ($lastClicked !== undefined) {
-      savePendingEdition($lastClicked);
+  startEditTextMode(id) {
+    if (this.lastIdEdited !== undefined && this.lastIdEdited !== id) {
+      this.savePendingEdition(this.lastIdEdited);
     }
 
-    $lastClicked = $(this);
-    var text = $lastClicked.text();
-    console.log(text);
-    var content = "<input type='text' class='tarefa-edit' value='" + text + "'>";
-    $lastClicked.html(content);
-    $(".tarefa-edit").keydown(onTarefaEditKeydown);
+    if (this.lastIdEdited !== id) {
+      this.lastIdEdited = id;
+      let taskFound = this.tasks.find((task) => task.id === id);
+      taskFound.startEditTextMode();
+    }
+  }
+
+  savePendingEdition(id) {
+    let taskFound = this.tasks.find((task) => task.id === id);
+    taskFound.savePendingEdition();
+    this.lastIdEdited = undefined;
+  }
+
+  updateTaskText(id, text) {
+    let taskFound = this.tasks.find((task) => task.id === id);
+    taskFound.updateText(text);
+  }
+
+  updateTaskCompleted(id) {
+    let taskFound = this.tasks.find((task) => task.id === id);
+    taskFound.updateIsFinished();
+  }
+
+  deleteTask(id) {
+    console.log(id);
+    $.ajax({
+      url: server + "/" + id,
+      type: "DELETE",
+      success: () => {
+        let taskFound = this.tasks.find((task) => task.id === id);
+        taskFound.deleteDOMElement();
+        let taskFiltered = this.tasks.filter((task) => task.id !== id);
+        this.tasks = taskFiltered;
+      },
+      error: function() {
+        alert("error to delete task");
+      }
+    });
   }
 }
 
-function savePendingEdition($inputNewText) {
-  let $divTarefaItem = $inputNewText.parent('.tarefa-item');
-  let id = $divTarefaItem.attr('data-tarefa-id');
-  console.log(id);
+class Task {
+  constructor(id, text, isFinished) {
+    this.id = id;
+    this.taskFinishedElement = new TaskFinishedElement(isFinished);
+    this.taskTextElement = new TaskTextElement(text, isFinished);
+    this.taskDeleteElement = new TaskDeleteElement();
+  }
 
-  let text = $divTarefaItem.find(".tarefa-edit").val();
-  console.log(text);
+  toHTML() {
+    this.id = this.id || 0;
 
-  let isCheched = $divTarefaItem.find("input[type='checkbox']").is(":checked");
-  console.log(isCheched);
+    var $tarefa = $("<div />")
+      .addClass("task-item")
+      .attr("id", this.id)
+      .append(this.taskFinishedElement.toHTML())
+      .append(this.taskTextElement.toHTML())
+      .append(this.taskDeleteElement.toHTML())
+      .append(this.gerarTarefaClear());
+    return $tarefa;
+  }
 
-  updateTarefa(text, id, isCheched);
-  $divTarefaItem.before(newTarefa(text, id, isCheched));
-  $divTarefaItem.remove();
+  deleteDOMElement() {
+    let $element = $("#" + this.id);
+    $element
+      .off('click')
+      .hide('slow', function() {
+        $element.remove();
+      });
+  }
+
+  updateText(text) {
+
+    let tarefaAlterada = {
+      'descricao': text,
+      'finalizada': this.taskFinishedElement.isFinished
+    };
+
+    $.ajax({
+      url: server + "/" + this.id,
+      type: "PUT",
+      data: JSON.stringify(tarefaAlterada),
+      contentType: "application/json",
+      success: () => {
+        this.taskTextElement.updateText(text);
+      },
+      error: function() {
+        alert("error to update task");
+      }
+    });
+  }
+
+  updateIsFinished() {
+    let tarefaAlterada = {
+      'descricao': this.taskTextElement.text,
+      'finalizada': !this.taskFinishedElement.isFinished
+    };
+
+    $.ajax({
+      url: server + "/" + this.id,
+      type: "PUT",
+      data: JSON.stringify(tarefaAlterada),
+      contentType: "application/json",
+      success: () => {
+        this.taskTextElement.updateIsFinished();
+        this.taskFinishedElement.updateIsFinished();
+      },
+      error: function() {
+        alert("error to update task");
+      }
+    });
+  }
+
+  startEditTextMode() {
+    this.taskTextElement.startEditTextMode();
+  }
+
+  savePendingEdition() {
+    let originalText = this.taskTextElement.text;
+    this.taskTextElement.savePendingEdition();
+    let newText = this.taskTextElement.text;
+
+    if (originalText !== newText) {
+      let tarefaAlterada = {
+        'descricao': newText,
+        'finalizada': this.taskFinishedElement.isFinished
+      };
+
+      $.ajax({
+        url: server + "/" + this.id,
+        type: "PUT",
+        data: JSON.stringify(tarefaAlterada),
+        contentType: "application/json",
+        error: function() {
+          alert("error to update task");
+        }
+      });
+    }
+  }
+
+  gerarTarefaClear() {
+    return $("<div />")
+      .addClass("clear");
+  }
+}
+
+class TaskFinishedElement {
+  constructor(isFinished) {
+    this.isFinished = isFinished;
+  }
+
+  toHTML() {
+    let $divFinalizado = $("<div />")
+      .addClass("tarefa-finalizada")
+      .append(this.gerarCheckox());
+    return $divFinalizado;
+  }
+
+  gerarCheckox() {
+    let $inputCheck = $("<input />")
+      .addClass("check-finalizado")
+      .change(onTaskFinishedChange)
+      .attr("type", "checkbox");
+
+    if (this.isFinished) {
+      $inputCheck.attr("checked", "checked");
+    }
+    return $inputCheck;
+  }
+
+  updateIsFinished() {
+    this.isFinished = !this.isFinished;
+  }
+}
+
+class TaskTextElement {
+  constructor(text, isFinished) {
+    this.text = text;
+    this.isFinished = isFinished;
+    this.id = CreateUUID();
+    this.$id = '#' + this.id;
+  }
+
+  toHTML() {
+    let $tarefaTexto = $("<div />")
+      .attr("id", this.id)
+      .addClass("tarefa-texto")
+      .click(onTaskTextClick)
+      .text(this.text);
+
+    if (this.isFinished) {
+      $tarefaTexto.addClass('texto-tachado');
+    }
+    return $tarefaTexto;
+  }
+
+  updateText(text) {
+    this.text = text;
+    $(this.$id).text(text);
+  }
+
+  updateIsFinished() {
+    this.isFinished = !this.isFinished;
+    let $divTaskText = $(this.$id);
+    if (this.isFinished) {
+      $divTaskText.addClass('texto-tachado');
+    } else {
+      $divTaskText.removeClass('texto-tachado');
+    }
+  }
+
+  startEditTextMode() {
+    let htmlString = this.text.replaceAll("'", "&#39;").replaceAll('"', '&#34;');
+    var content = "<input type='text' class='task-text-edit' value='" + htmlString + "'>";
+    let $divTaskText = $(this.$id);
+    $divTaskText.empty();
+    $divTaskText.html(content);
+    $(".task-text-edit").keydown(onTaskTextEditKeyEnter);
+  }
+
+  savePendingEdition() {
+    this.text = $('.task-text-edit').val();
+    let $divTaskText = $(this.$id);
+    $divTaskText.empty();
+    $divTaskText.text(this.text);
+  }
+}
+
+class TaskDeleteElement {
+  constructor(text, isFinished) {
+    this.text = text;
+    this.isFinished = isFinished;
+  }
+
+  toHTML() {
+    return $("<div />")
+      .addClass("tarefa-delete")
+      .click(onTaskDeleteClick);
+  }
+}
+
+
+function CreateUUID() {
+  return ([1e7] + -1e3 + -4e3 + -8e3 + -1e11).replace(/[018]/g, c =>
+    (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+  )
+}
+
+function onTaskDeleteClick() {
+  let $idTaskItem = $(this).closest('.task-item').attr("id");
+  taskManager.deleteTask($idTaskItem);
+}
+
+function onTaskFinishedChange() {
+  let $idTaskItem = $(this).closest('.task-item').attr("id");
+  taskManager.updateTaskCompleted($idTaskItem);
+}
+
+function onTaskTextClick() {
+  let $idTaskItem = $(this).closest('.task-item').attr("id");
+  taskManager.startEditTextMode($idTaskItem);
+}
+
+function onTaskTextEditKeyEnter(event) {
+  if (event.which === 13) {
+    let $idTaskItem = $(this).closest('.task-item').attr("id");
+    taskManager.savePendingEdition($idTaskItem);
+  }
 }
 
 function loadTarefas() {
-  $("#tarefa-list").empty();
-
+  $("#task-list").empty();
   $.getJSON(server)
     .done(function(data) {
-      //console.log("data:	", data);
-      for (var tarefa = 0; tarefa < data.length; tarefa++) {
-        $("#tarefa-list").append(newTarefa(data[tarefa].descricao, data[tarefa].id,
-          data[tarefa].finalizada));
-      }
+      taskManager = new TaskManager("task-list");
+      data.forEach((task) => taskManager.addTask(task.id, task.descricao, task.finalizada));
+      taskManager.showTasks();
     });
 }
 
-function InsertTarefa(text) {
-  let novaTarefa = {
-    'descricao': text,
-    'finalizada': false
-  };
-
-  $.ajax({
-    url: server,
-    type: "POST",
-    data: JSON.stringify(novaTarefa),
-    contentType: "application/json",
-    success: function(data) {
-      $("#tarefa-list").append(newTarefa(data.descricao, data.id, data.finalizada));
-    },
-    error: function() {
-      alert("error");
-    }
-  });
-}
-
-function removeTarefa(id) {
-  $.ajax({
-    url: server + "/" + id,
-    type: "DELETE"
-  });
-}
-
-function updateTarefa(text, id, finalizada) {
-  let tarefaAlterada = {
-    'descricao': text,
-    'finalizada': finalizada
-  };
-
-  $.ajax({
-    url: server + "/" + id,
-    type: "PUT",
-    data: JSON.stringify(tarefaAlterada),
-    contentType: "application/json"
-  });
-}
-
-$("#tarefa").keydown(onTarefaKeydown);
 loadTarefas();
+
+function onNewTaskInputTextKeyEnter(event) {
+  if (event.which === 13) {
+    taskManager.createTask($("#new-task-input-text").val());
+    $("#new-task-input-text").val("");
+  }
+}
+
+$("#new-task-input-text").keydown(onNewTaskInputTextKeyEnter);
