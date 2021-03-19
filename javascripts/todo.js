@@ -14,6 +14,7 @@ class TaskManager {
   }
 
   showTasks() {
+    this.container.empty();
     this.tasks.forEach((task) => this.container.append(task.toHTML()));
   }
 
@@ -58,19 +59,34 @@ class TaskManager {
 
   savePendingEdition(id) {
     let taskFound = this.tasks.find((task) => task.id === id);
-    taskFound.savePendingEdition();
+    taskFound.savePendingEdition(this);
     this.lastIdEdited = undefined;
   }
 
   updateTaskText(id, text) {
     let taskFound = this.tasks.find((task) => task.id === id);
-    taskFound.updateText(text);
+    taskFound.updateText(text, this);
   }
 
   updateTaskCompleted(id) {
     let taskFound = this.tasks.find((task) => task.id === id);
-    taskFound.updateIsFinished();
+    taskFound.updateIsFinished(this);
   }
+
+  sortTasks() {
+    this.tasks.sort(function(a, b) {
+      let aIsSortedBeforeB = -1;
+      let bIsSortedBeforeA = 1;
+      if (a.isFinished === true && b.isFinished === false) {
+        return bIsSortedBeforeA;
+      } else if (a.isFinished === false && b.isFinished === true) {
+        return aIsSortedBeforeB;
+      } else {
+        return a.text.charCodeAt(0) - b.text.charCodeAt(0);
+      }
+    });
+  }
+
 
   deleteTask(id) {
     console.log(id);
@@ -93,8 +109,10 @@ class TaskManager {
 class Task {
   constructor(id, text, isFinished) {
     this.id = id;
-    this.taskFinishedElement = new TaskFinishedElement(isFinished);
-    this.taskTextElement = new TaskTextElement(text, isFinished);
+    this.text = text;
+    this.isFinished = isFinished;
+    this.taskFinishedElement = new TaskFinishedElement();
+    this.taskTextElement = new TaskTextElement();
     this.taskDeleteElement = new TaskDeleteElement();
   }
 
@@ -104,8 +122,8 @@ class Task {
     var $tarefa = $("<div />")
       .addClass("task-item")
       .attr("id", this.id)
-      .append(this.taskFinishedElement.toHTML())
-      .append(this.taskTextElement.toHTML())
+      .append(this.taskFinishedElement.toHTML(this.isFinished))
+      .append(this.taskTextElement.toHTML(this.text, this.isFinished))
       .append(this.taskDeleteElement.toHTML())
       .append(this.gerarTarefaClear());
     return $tarefa;
@@ -120,11 +138,11 @@ class Task {
       });
   }
 
-  updateText(text) {
+  updateText(text, container) {
 
     let tarefaAlterada = {
       'descricao': text,
-      'finalizada': this.taskFinishedElement.isFinished
+      'finalizada': this.isFinished
     };
 
     $.ajax({
@@ -133,18 +151,26 @@ class Task {
       data: JSON.stringify(tarefaAlterada),
       contentType: "application/json",
       success: () => {
+        this.text = text;
         this.taskTextElement.updateText(text);
       },
       error: function() {
         alert("error to update task");
+      },
+      complete: function(data) {
+        console.log(data);
+        if (data.status == 204) {
+          container.sortTasks();
+          container.showTasks();
+        }
       }
     });
   }
 
-  updateIsFinished() {
+  updateIsFinished(container) {
     let tarefaAlterada = {
-      'descricao': this.taskTextElement.text,
-      'finalizada': !this.taskFinishedElement.isFinished
+      'descricao': this.text,
+      'finalizada': !this.isFinished
     };
 
     $.ajax({
@@ -153,28 +179,33 @@ class Task {
       data: JSON.stringify(tarefaAlterada),
       contentType: "application/json",
       success: () => {
-        this.taskTextElement.updateIsFinished();
-        this.taskFinishedElement.updateIsFinished();
+        this.isFinished = !this.isFinished;
+        this.taskTextElement.updateIsFinished(this.isFinished);
       },
       error: function() {
         alert("error to update task");
+      },
+      complete: function(data) {
+        console.log(data);
+        if (data.status == 204) {
+          container.sortTasks();
+          container.showTasks();
+        }
       }
     });
   }
 
   startEditTextMode() {
-    this.taskTextElement.startEditTextMode();
+    this.taskTextElement.startEditTextMode(this.text);
   }
 
-  savePendingEdition() {
-    let originalText = this.taskTextElement.text;
-    this.taskTextElement.savePendingEdition();
-    let newText = this.taskTextElement.text;
+  savePendingEdition(container) {
+    let newText = this.taskTextElement.savePendingEdition();
 
-    if (originalText !== newText) {
+    if (this.text !== newText) {
       let tarefaAlterada = {
         'descricao': newText,
-        'finalizada': this.taskFinishedElement.isFinished
+        'finalizada': this.isFinished
       };
 
       $.ajax({
@@ -182,8 +213,18 @@ class Task {
         type: "PUT",
         data: JSON.stringify(tarefaAlterada),
         contentType: "application/json",
+        success: () => {
+          this.text = newText;
+        },
         error: function() {
           alert("error to update task");
+        },
+        complete: function(data) {
+          console.log(data);
+          if (data.status == 204) {
+            container.sortTasks();
+            container.showTasks();
+          }
         }
       });
     }
@@ -196,72 +237,62 @@ class Task {
 }
 
 class TaskFinishedElement {
-  constructor(isFinished) {
-    this.isFinished = isFinished;
-  }
 
-  toHTML() {
+  toHTML(isFinished) {
     let $divFinalizado = $("<div />")
       .addClass("tarefa-finalizada")
-      .append(this.gerarCheckox());
+      .append(this.gerarCheckox(isFinished));
     return $divFinalizado;
   }
 
-  gerarCheckox() {
+  gerarCheckox(isFinished) {
     let $inputCheck = $("<input />")
       .addClass("check-finalizado")
       .change(onTaskFinishedChange)
       .attr("type", "checkbox");
 
-    if (this.isFinished) {
+    if (isFinished) {
       $inputCheck.attr("checked", "checked");
     }
     return $inputCheck;
   }
-
-  updateIsFinished() {
-    this.isFinished = !this.isFinished;
-  }
 }
 
 class TaskTextElement {
-  constructor(text, isFinished) {
-    this.text = text;
-    this.isFinished = isFinished;
+  constructor() {
     this.id = CreateUUID();
     this.$id = '#' + this.id;
   }
 
-  toHTML() {
+  toHTML(text, isFinished) {
     let $tarefaTexto = $("<div />")
       .attr("id", this.id)
       .addClass("tarefa-texto")
       .click(onTaskTextClick)
-      .text(this.text);
+      .text(text);
 
-    if (this.isFinished) {
+    if (isFinished) {
       $tarefaTexto.addClass('texto-tachado');
     }
     return $tarefaTexto;
   }
 
   updateText(text) {
-    this.text = text;
     $(this.$id).text(text);
   }
 
-  updateIsFinished() {
-    this.isFinished = !this.isFinished;
+  updateIsFinished(isFinished) {
+    console.log(isFinished);
     let $divTaskText = $(this.$id);
-    if (this.isFinished) {
+    if (isFinished) {
       $divTaskText.addClass('texto-tachado');
     } else {
       $divTaskText.removeClass('texto-tachado');
     }
   }
 
-  startEditTextMode() {
-    let htmlString = this.text.replaceAll("'", "&#39;").replaceAll('"', '&#34;');
+  startEditTextMode(text) {
+    let htmlString = text.replaceAll("'", "&#39;").replaceAll('"', '&#34;');
     var content = "<input type='text' class='task-text-edit' value='" + htmlString + "'>";
     let $divTaskText = $(this.$id);
     $divTaskText.empty();
@@ -270,10 +301,12 @@ class TaskTextElement {
   }
 
   savePendingEdition() {
-    this.text = $('.task-text-edit').val();
+    let newText = $('.task-text-edit').val();
     let $divTaskText = $(this.$id);
     $divTaskText.empty();
-    $divTaskText.text(this.text);
+    $divTaskText.text(newText);
+
+    return newText;
   }
 }
 
