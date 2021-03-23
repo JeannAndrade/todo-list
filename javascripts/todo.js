@@ -24,15 +24,13 @@ class TaskManager {
   }
 
   createTask(text) {
-    let newTaskDto = {
-      'descricao': text,
-      'finalizada': false
-    };
+    let self = this;
+    let taskDto = this.taskDtoToApiFactory(text);
 
     $.ajax({
       url: server,
       type: "POST",
-      data: JSON.stringify(newTaskDto),
+      data: JSON.stringify(taskDto),
       contentType: "application/json",
       success: (data) => {
         let taskCreated = new Task(data.id, data.descricao, data.finalizada);
@@ -41,6 +39,12 @@ class TaskManager {
       },
       error: function() {
         alert("error");
+      },
+      complete: function(data) {
+        if (data.status == 201) {
+          self.sortTasks();
+          self.showTasks();
+        }
       }
     });
   }
@@ -58,25 +62,66 @@ class TaskManager {
   }
 
   savePendingEdition(id) {
+    let self = this;
     let taskFound = this.tasks.find((task) => task.id === id);
-    taskFound.savePendingEdition(this);
+
+    let newText = taskFound.taskTextElement.savePendingEdition();
+
+    if (taskFound.text !== newText) {
+      let taskDto = this.fullTaskDtoToApiFactory(newText, taskFound.isFinished);
+
+      $.ajax({
+        url: server + "/" + taskFound.id,
+        type: "PUT",
+        data: JSON.stringify(taskDto),
+        contentType: "application/json",
+        success: () => {
+          taskFound.text = newText;
+        },
+        error: function() {
+          alert("error to update task");
+        },
+        complete: function(data) {
+          if (data.status == 204) {
+            self.sortTasks();
+            self.showTasks();
+          }
+        }
+      });
+    }
+
     this.lastIdEdited = undefined;
   }
 
-  updateTaskText(id, text) {
-    let taskFound = this.tasks.find((task) => task.id === id);
-    taskFound.updateText(text, this);
-  }
-
   updateTaskCompleted(id) {
+    let self = this;
     let taskFound = this.tasks.find((task) => task.id === id);
-    taskFound.updateIsFinished(this);
+    let taskDto = this.fullTaskDtoToApiFactory(taskFound.text, !taskFound.isFinished);
+
+    $.ajax({
+      url: server + "/" + taskFound.id,
+      type: "PUT",
+      data: JSON.stringify(taskDto),
+      contentType: "application/json",
+      success: function() {
+        taskFound.isFinished = !taskFound.isFinished;
+      },
+      error: function() {
+        alert("error to update task");
+      },
+      complete: function(data) {
+        if (data.status == 204) {
+          self.sortTasks();
+          self.showTasks();
+        }
+      }
+    });
   }
 
   sortTasks() {
     this.tasks.sort(function(a, b) {
-      let aIsSortedBeforeB = -1;
-      let bIsSortedBeforeA = 1;
+      const aIsSortedBeforeB = -1;
+      const bIsSortedBeforeA = 1;
       if (a.isFinished === true && b.isFinished === false) {
         return bIsSortedBeforeA;
       } else if (a.isFinished === false && b.isFinished === true) {
@@ -89,7 +134,6 @@ class TaskManager {
 
 
   deleteTask(id) {
-    console.log(id);
     $.ajax({
       url: server + "/" + id,
       type: "DELETE",
@@ -103,6 +147,17 @@ class TaskManager {
         alert("error to delete task");
       }
     });
+  }
+
+  fullTaskDtoToApiFactory(text, isFinished) {
+    return {
+      'descricao': text,
+      'finalizada': isFinished
+    };
+  }
+
+  taskDtoToApiFactory(text) {
+    return this.fullTaskDtoToApiFactory(text, false);
   }
 }
 
@@ -138,96 +193,8 @@ class Task {
       });
   }
 
-  updateText(text, container) {
-
-    let tarefaAlterada = {
-      'descricao': text,
-      'finalizada': this.isFinished
-    };
-
-    $.ajax({
-      url: server + "/" + this.id,
-      type: "PUT",
-      data: JSON.stringify(tarefaAlterada),
-      contentType: "application/json",
-      success: () => {
-        this.text = text;
-        this.taskTextElement.updateText(text);
-      },
-      error: function() {
-        alert("error to update task");
-      },
-      complete: function(data) {
-        console.log(data);
-        if (data.status == 204) {
-          container.sortTasks();
-          container.showTasks();
-        }
-      }
-    });
-  }
-
-  updateIsFinished(container) {
-    let tarefaAlterada = {
-      'descricao': this.text,
-      'finalizada': !this.isFinished
-    };
-
-    $.ajax({
-      url: server + "/" + this.id,
-      type: "PUT",
-      data: JSON.stringify(tarefaAlterada),
-      contentType: "application/json",
-      success: () => {
-        this.isFinished = !this.isFinished;
-        this.taskTextElement.updateIsFinished(this.isFinished);
-      },
-      error: function() {
-        alert("error to update task");
-      },
-      complete: function(data) {
-        console.log(data);
-        if (data.status == 204) {
-          container.sortTasks();
-          container.showTasks();
-        }
-      }
-    });
-  }
-
   startEditTextMode() {
     this.taskTextElement.startEditTextMode(this.text);
-  }
-
-  savePendingEdition(container) {
-    let newText = this.taskTextElement.savePendingEdition();
-
-    if (this.text !== newText) {
-      let tarefaAlterada = {
-        'descricao': newText,
-        'finalizada': this.isFinished
-      };
-
-      $.ajax({
-        url: server + "/" + this.id,
-        type: "PUT",
-        data: JSON.stringify(tarefaAlterada),
-        contentType: "application/json",
-        success: () => {
-          this.text = newText;
-        },
-        error: function() {
-          alert("error to update task");
-        },
-        complete: function(data) {
-          console.log(data);
-          if (data.status == 204) {
-            container.sortTasks();
-            container.showTasks();
-          }
-        }
-      });
-    }
   }
 
   gerarTarefaClear() {
@@ -275,20 +242,6 @@ class TaskTextElement {
       $tarefaTexto.addClass('texto-tachado');
     }
     return $tarefaTexto;
-  }
-
-  updateText(text) {
-    $(this.$id).text(text);
-  }
-
-  updateIsFinished(isFinished) {
-    console.log(isFinished);
-    let $divTaskText = $(this.$id);
-    if (isFinished) {
-      $divTaskText.addClass('texto-tachado');
-    } else {
-      $divTaskText.removeClass('texto-tachado');
-    }
   }
 
   startEditTextMode(text) {
